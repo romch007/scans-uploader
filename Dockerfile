@@ -1,12 +1,12 @@
-FROM rust:1-alpine AS builder
+FROM rust:1 AS builder
 
-RUN apk add --no-cache musl-dev pkgconf openssl-dev
+ENV TINI_VERSION=v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static /tini
+RUN chmod +x /tini
 
 RUN cargo install cargo-build-deps
 
 WORKDIR /app
-
-ENV RUSTFLAGS='-C target-feature=-crt-static'
 
 RUN cargo new --bin slack-uploader
 WORKDIR /app/slack-uploader
@@ -18,19 +18,13 @@ COPY src ./src
 RUN cargo build --release
 RUN strip target/release/slack-uploader
 
-FROM alpine
-
-ARG USER=default
-
-RUN apk add --no-cache tini libgcc
-RUN adduser -D $USER
+FROM gcr.io/distroless/cc-debian12:nonroot
 
 WORKDIR /app
 
-USER $USER
+COPY --from=builder /app/slack-uploader/target/release/slack-uploader /app
+COPY --from=builder /tini /tini
 
-COPY --from=builder /app/slack-uploader/target/release/slack-uploader ./
-
-ENTRYPOINT [ "/sbin/tini", "--" ]
+ENTRYPOINT ["/tini" , "--"]
 
 CMD ["/app/slack-uploader"]
