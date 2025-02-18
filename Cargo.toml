@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.82"
-notify = "6.1.1"
+notify = "8.0.0"
 pathdiff = "0.2.1"
 reqwest = { version = "0.12.4", features = ["blocking", "json", "multipart"] }
 serde = { version = "1.0.199", features = ["derive"] }

@@ -3,7 +3,7 @@ mod slack;
 use anyhow::{anyhow, Context};
 use notify::{
     event::{AccessKind, AccessMode},
-    Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use std::{
     collections::HashMap,
@@ -32,8 +32,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let mut watcher =
-        RecommendedWatcher::new(tx, Config::default()).expect("cannot create watcher");
+    let mut watcher = notify::recommended_watcher(tx).expect("cannot create watcher");
 
     watcher
         .watch(&watch_dir, RecursiveMode::Recursive)
