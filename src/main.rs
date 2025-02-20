@@ -1,39 +1,28 @@
+mod uploader;
+
 use anyhow::anyhow;
 use notify::{
     event::{AccessKind, AccessMode},
     EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
-use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    sync::mpsc,
+};
 
-#[tokio::main]
-async fn main() {
+fn main() {
     tracing_subscriber::fmt::init();
-
-    let dir_mapping = env::var("DIR_MAPPING").expect("DIR_MAPPING not provided");
-    let dir_mapping: Arc<HashMap<String, String>> =
-        Arc::new(serde_json::from_str(&dir_mapping).expect("invalid mapping"));
-
-    tracing::info!("mappings:");
-    for (dir, channel_id) in dir_mapping.iter() {
-        tracing::info!("  {dir} -> {channel_id}");
-    }
 
     let watch_dir: PathBuf = env::var_os("WATCH_DIR")
         .expect("WATCH_DIR not provided")
         .into();
 
-    let watch_dir = Arc::new(
-        tokio::fs::canonicalize(watch_dir)
-            .await
-            .expect("cannot canonicalize path"),
-    );
+    let watch_dir = fs::canonicalize(watch_dir).expect("cannot canonicalize path");
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let (fs_event_tx, fs_event_rx) = mpsc::channel();
 
-    let mut watcher = notify::recommended_watcher(move |event| {
-        let _ = tx.blocking_send(event);
-    })
-    .expect("cannot create watcher");
+    let mut watcher = notify::recommended_watcher(fs_event_tx).expect("cannot create watcher");
 
     watcher
         .watch(&watch_dir, RecursiveMode::Recursive)
@@ -45,22 +34,21 @@ async fn main() {
         RecommendedWatcher::kind()
     );
 
-    while let Some(res) = rx.recv().await {
-        let dir_mapping = Arc::clone(&dir_mapping);
-        let watch_dir = Arc::clone(&watch_dir);
+    let discord_webhook_url = env::var("WEBHOOK_URL").expect("no WEBHOOK_URL");
 
-        tokio::spawn(async move {
-            if let Err(error) = handle_event(res, watch_dir, dir_mapping).await {
-                tracing::error!("{error:?}");
-            }
-        });
+    let uploader = uploader::Discord::new(discord_webhook_url);
+
+    for res in fs_event_rx {
+        if let Err(error) = handle_event(res, &watch_dir, uploader.clone()) {
+            tracing::error!("{error:?}");
+        }
     }
 }
 
-async fn handle_event(
+fn handle_event(
     event: Result<notify::Event, notify::Error>,
-    watch_dir: Arc<PathBuf>,
-    dir_mapping: Arc<HashMap<String, String>>,
+    watch_dir: &Path,
+    uploader: uploader::Discord,
 ) -> anyhow::Result<()> {
     let event = event?;
 
@@ -71,7 +59,7 @@ async fn handle_event(
     ) {
         let full_path = event.paths.first().ok_or(anyhow!("no path in fs event"))?;
 
-        let relative_path = pathdiff::diff_paths(full_path, watch_dir.as_ref())
+        let relative_path = pathdiff::diff_paths(full_path, watch_dir)
             .ok_or(anyhow!("cannot get relative path of modified file"))?;
 
         let parent_directory = relative_path
@@ -88,13 +76,7 @@ async fn handle_event(
 
         tracing::debug!("{relative_path:?} was modified, parent folder is '{parent_directory}'");
 
-        let channel = dir_mapping.get(parent_directory).ok_or(anyhow!(
-            "cannot find channel mapping for directory '{parent_directory}'"
-        ))?;
-
-        tracing::debug!("found channel mapping to {channel}");
-
-        // uploader.upload(&channel, filename, &full_path).await?;
+        uploader.upload(filename, full_path)?;
 
         tracing::debug!("file uploaded!");
     }
