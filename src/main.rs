@@ -5,22 +5,18 @@ use notify::{
     event::{AccessKind, AccessMode},
     EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
-use std::{
-    collections::HashMap,
-    env, fs,
-    path::{Path, PathBuf},
-    sync::mpsc,
-};
+use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt::init();
 
     let dir_mapping = env::var("DIR_MAPPING").expect("DIR_MAPPING not provided");
-    let dir_mapping: HashMap<String, String> =
-        serde_json::from_str(&dir_mapping).expect("invalid mapping");
+    let dir_mapping: Arc<HashMap<String, String>> =
+        Arc::new(serde_json::from_str(&dir_mapping).expect("invalid mapping"));
 
     tracing::info!("mappings:");
-    for (dir, channel_id) in &dir_mapping {
+    for (dir, channel_id) in dir_mapping.iter() {
         tracing::info!("  {dir} -> {channel_id}");
     }
 
@@ -28,11 +24,18 @@ fn main() {
         .expect("WATCH_DIR not provided")
         .into();
 
-    let watch_dir = fs::canonicalize(watch_dir).expect("cannot canonicalize path");
+    let watch_dir = Arc::new(
+        tokio::fs::canonicalize(watch_dir)
+            .await
+            .expect("cannot canonicalize path"),
+    );
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
-    let mut watcher = notify::recommended_watcher(tx).expect("cannot create watcher");
+    let mut watcher = notify::recommended_watcher(move |event| {
+        let _ = tx.blocking_send(event);
+    })
+    .expect("cannot create watcher");
 
     watcher
         .watch(&watch_dir, RecursiveMode::Recursive)
@@ -48,18 +51,24 @@ fn main() {
 
     let slack_client = slack::Client::new(slack_token);
 
-    for res in rx {
-        if let Err(error) = handle_event(res, &watch_dir, &slack_client, &dir_mapping) {
-            tracing::error!("{error:?}");
-        }
+    while let Some(res) = rx.recv().await {
+        let dir_mapping = Arc::clone(&dir_mapping);
+        let watch_dir = Arc::clone(&watch_dir);
+        let slack_client = slack_client.clone();
+
+        tokio::spawn(async move {
+            if let Err(error) = handle_event(res, watch_dir, slack_client, dir_mapping).await {
+                tracing::error!("{error:?}");
+            }
+        });
     }
 }
 
-fn handle_event(
+async fn handle_event(
     event: Result<notify::Event, notify::Error>,
-    watch_dir: &Path,
-    slack_client: &slack::Client,
-    dir_mapping: &HashMap<String, String>,
+    watch_dir: Arc<PathBuf>,
+    slack_client: slack::Client,
+    dir_mapping: Arc<HashMap<String, String>>,
 ) -> anyhow::Result<()> {
     let event = event?;
 
@@ -70,7 +79,7 @@ fn handle_event(
     ) {
         let full_path = event.paths.first().ok_or(anyhow!("no path in fs event"))?;
 
-        let relative_path = pathdiff::diff_paths(full_path, watch_dir)
+        let relative_path = pathdiff::diff_paths(full_path, watch_dir.as_ref())
             .ok_or(anyhow!("cannot get relative path of modified file"))?;
 
         let parent_directory = relative_path
@@ -101,6 +110,7 @@ fn handle_event(
 
         slack_client
             .upload_file(upload_request)
+            .await
             .with_context(|| "error when uploading file")?;
 
         tracing::debug!("file uploaded!");

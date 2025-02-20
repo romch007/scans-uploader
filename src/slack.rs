@@ -1,25 +1,26 @@
 use std::path::Path;
 
 use anyhow::{bail, Context};
-use reqwest::blocking::multipart;
+use reqwest::multipart;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 const BASE_URL: &str = "https://slack.com/api";
 
+#[derive(Debug, Clone)]
 pub struct Client {
     token: String,
-    client: reqwest::blocking::Client,
+    client: reqwest::Client,
 }
 
 impl Client {
     pub fn new(token: impl Into<String>) -> Self {
         Self {
             token: token.into(),
-            client: reqwest::blocking::Client::new(),
+            client: reqwest::Client::new(),
         }
     }
 
-    fn get<T, U>(&self, uri: &str, query_string: &T) -> anyhow::Result<U>
+    async fn get<T, U>(&self, uri: &str, query_string: &T) -> anyhow::Result<U>
     where
         T: Serialize,
         U: DeserializeOwned,
@@ -29,10 +30,11 @@ impl Client {
             .get(format!("{BASE_URL}{uri}"))
             .header("Authorization", format!("Bearer {}", self.token))
             .query(query_string)
-            .send()?
+            .send()
+            .await?
             .error_for_status()?;
 
-        let slack_response: Response<U> = response.json()?;
+        let slack_response: Response<U> = response.json().await?;
 
         match slack_response.content {
             ResponseContent::Error { error } => bail!("slack api error: {error}"),
@@ -40,7 +42,7 @@ impl Client {
         }
     }
 
-    fn post<T, U>(&self, uri: &str, body: &T) -> anyhow::Result<U>
+    async fn post<T, U>(&self, uri: &str, body: &T) -> anyhow::Result<U>
     where
         T: Serialize,
         U: DeserializeOwned,
@@ -50,10 +52,11 @@ impl Client {
             .post(format!("{BASE_URL}{uri}"))
             .header("Authorization", format!("Bearer {}", self.token))
             .json(body)
-            .send()?
+            .send()
+            .await?
             .error_for_status()?;
 
-        let slack_response: Response<U> = response.json()?;
+        let slack_response: Response<U> = response.json().await?;
 
         match slack_response.content {
             ResponseContent::Error { error } => bail!("slack api error: {error}"),
@@ -61,13 +64,13 @@ impl Client {
         }
     }
 
-    pub fn post_message(&self, message: PostMessageRequest) -> anyhow::Result<()> {
-        let _response: PostMessageResponse = self.post("/chat.postMessage", &message)?;
+    pub async fn post_message(&self, message: PostMessageRequest<'_>) -> anyhow::Result<()> {
+        let _response: PostMessageResponse = self.post("/chat.postMessage", &message).await?;
 
         Ok(())
     }
 
-    pub fn upload_file(&self, upload: UploadFileRequest) -> anyhow::Result<()> {
+    pub async fn upload_file(&self, upload: UploadFileRequest<'_>) -> anyhow::Result<()> {
         let length = upload
             .path
             .metadata()
@@ -79,15 +82,17 @@ impl Client {
             length,
         };
 
-        let res: GetUploadUrlExternalResponse = self.get("/files.getUploadURLExternal", &req)?;
+        let res: GetUploadUrlExternalResponse =
+            self.get("/files.getUploadURLExternal", &req).await?;
 
-        let multipart_form = multipart::Form::new().file("file", upload.path)?;
+        let multipart_form = multipart::Form::new().file("file", upload.path).await?;
 
         self.client
             .post(&res.upload_url)
             .header("Authorization", format!("Bearer {}", self.token))
             .multipart(multipart_form)
-            .send()?
+            .send()
+            .await?
             .error_for_status()?;
 
         let req = CompleteUploadExternalRequest {
@@ -96,7 +101,7 @@ impl Client {
         };
 
         let _res: CompleteUploadExternalResponse =
-            self.post("/files.completeUploadExternal", &req)?;
+            self.post("/files.completeUploadExternal", &req).await?;
 
         Ok(())
     }
