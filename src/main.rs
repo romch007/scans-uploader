@@ -76,7 +76,7 @@ fn handle_event(
 
         tracing::debug!("{relative_path:?} was modified, parent folder is '{parent_directory}'");
 
-        uploader.upload(filename, full_path)?;
+        uploader.upload(parent_directory, filename, full_path)?;
 
         tracing::debug!("file uploaded!");
     }

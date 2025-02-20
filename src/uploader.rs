@@ -16,9 +16,12 @@ impl Discord {
         }
     }
 
-    pub fn upload(&self, filename: &str, filepath: &Path) -> anyhow::Result<()> {
+    pub fn upload(&self, group: &str, filename: &str, filepath: &Path) -> anyhow::Result<()> {
         let form = multipart::Form::new()
-            .text("content", filename.to_string())
+            .text(
+                "content",
+                format!("Received '{filename}' from folder '{group}'"),
+            )
             .text("username", "scans")
             .file("file", filepath)?;
 
