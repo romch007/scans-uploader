@@ -8,23 +8,23 @@ RUN cargo install cargo-build-deps
 
 WORKDIR /app
 
-RUN cargo new --bin slack-uploader
-WORKDIR /app/slack-uploader
+RUN cargo new --bin scans-uploader
+WORKDIR /app/scans-uploader
 
 COPY Cargo.toml Cargo.lock ./
 RUN cargo build-deps --release
 
 COPY src ./src
 RUN cargo build --release
-RUN strip target/release/slack-uploader
+RUN strip target/release/scans-uploader
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 
 WORKDIR /app
 
-COPY --from=builder /app/slack-uploader/target/release/slack-uploader /app
+COPY --from=builder /app/scans-uploader/target/release/scans-uploader /app
 COPY --from=builder /tini /tini
 
 ENTRYPOINT ["/tini" , "--"]
 
-CMD ["/app/slack-uploader"]
+CMD ["/app/scans-uploader"]

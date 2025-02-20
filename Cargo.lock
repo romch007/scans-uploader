@@ -948,7 +948,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "slack-uploader"
+name = "scans-uploader"
 version = "0.1.0"
 dependencies = [
  "anyhow",
