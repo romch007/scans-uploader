@@ -1,6 +1,4 @@
-mod slack;
-
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use notify::{
     event::{AccessKind, AccessMode},
     EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -47,17 +45,12 @@ async fn main() {
         RecommendedWatcher::kind()
     );
 
-    let slack_token = env::var("SLACK_OAUTH_TOKEN").expect("SLACK_OAUTH_TOKEN not provided");
-
-    let slack_client = slack::Client::new(slack_token);
-
     while let Some(res) = rx.recv().await {
         let dir_mapping = Arc::clone(&dir_mapping);
         let watch_dir = Arc::clone(&watch_dir);
-        let slack_client = slack_client.clone();
 
         tokio::spawn(async move {
-            if let Err(error) = handle_event(res, watch_dir, slack_client, dir_mapping).await {
+            if let Err(error) = handle_event(res, watch_dir, dir_mapping).await {
                 tracing::error!("{error:?}");
             }
         });
@@ -67,7 +60,6 @@ async fn main() {
 async fn handle_event(
     event: Result<notify::Event, notify::Error>,
     watch_dir: Arc<PathBuf>,
-    slack_client: slack::Client,
     dir_mapping: Arc<HashMap<String, String>>,
 ) -> anyhow::Result<()> {
     let event = event?;
@@ -102,16 +94,7 @@ async fn handle_event(
 
         tracing::debug!("found channel mapping to {channel}");
 
-        let upload_request = slack::UploadFileRequest {
-            channel,
-            filename,
-            path: full_path,
-        };
-
-        slack_client
-            .upload_file(upload_request)
-            .await
-            .with_context(|| "error when uploading file")?;
+        // uploader.upload(&channel, filename, &full_path).await?;
 
         tracing::debug!("file uploaded!");
     }
