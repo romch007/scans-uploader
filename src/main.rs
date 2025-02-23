@@ -1,6 +1,6 @@
 mod uploader;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use notify::{
     event::{AccessKind, AccessMode},
     EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -13,6 +13,13 @@ use std::{
 
 fn main() {
     tracing_subscriber::fmt::init();
+
+    let ignore_dotfiles = env::var("IGNORE_DOTFILES")
+        .map(|v| {
+            v.parse::<bool>()
+                .expect("invalid IGNORE_DOTFILES env variable")
+        })
+        .unwrap_or(true);
 
     let watch_dir: PathBuf = env::var_os("WATCH_DIR")
         .expect("WATCH_DIR not provided")
@@ -39,8 +46,8 @@ fn main() {
     let uploader = uploader::Discord::new(discord_webhook_url);
 
     for res in fs_event_rx {
-        if let Err(error) = handle_event(res, &watch_dir, uploader.clone()) {
-            tracing::error!("{error:?}");
+        if let Err(error) = handle_event(res, &watch_dir, ignore_dotfiles, uploader.clone()) {
+            tracing::error!("error while processing event:\n{error:?}");
         }
     }
 }
@@ -48,9 +55,10 @@ fn main() {
 fn handle_event(
     event: Result<notify::Event, notify::Error>,
     watch_dir: &Path,
+    ignore_dotfiles: bool,
     uploader: uploader::Discord,
 ) -> anyhow::Result<()> {
-    let event = event?;
+    let event = event.context("error in event")?;
 
     // check if the event is a close event on a writable file
     if matches!(
@@ -76,9 +84,15 @@ fn handle_event(
 
         tracing::debug!("{relative_path:?} was modified, parent folder is '{parent_directory}'");
 
-        uploader.upload(parent_directory, filename, full_path)?;
+        if ignore_dotfiles && filename.starts_with('.') {
+            tracing::debug!("file is a dotfile, ignoring");
+        } else {
+            uploader
+                .upload(parent_directory, filename, full_path)
+                .with_context(|| format!("could not upload file '{}'", full_path.display()))?;
 
-        tracing::debug!("file uploaded!");
+            tracing::debug!("file uploaded!");
+        }
     }
 
     Ok(())

@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use anyhow::Context;
 use reqwest::blocking::multipart;
 
 #[derive(Debug)]
@@ -23,13 +24,16 @@ impl Discord {
                 format!("Received '{filename}' from folder '{group}'"),
             )
             .text("username", "scans")
-            .file("file", filepath)?;
+            .file("file", filepath)
+            .context("cannot add file to multipart form")?;
 
         self.client
             .post(self.webhook_url.as_str())
             .multipart(form)
-            .send()?
-            .error_for_status()?;
+            .send()
+            .context("cannot send http request")?
+            .error_for_status()
+            .context("server returned an error")?;
 
         Ok(())
     }
