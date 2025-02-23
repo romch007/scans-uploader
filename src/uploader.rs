@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::Context;
+use eyre::Context;
 use reqwest::blocking::multipart;
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ impl Discord {
         }
     }
 
-    pub fn upload(&self, group: &str, filename: &str, filepath: &Path) -> anyhow::Result<()> {
+    pub fn upload(&self, group: &str, filename: &str, filepath: &Path) -> eyre::Result<()> {
         let form = multipart::Form::new()
             .text(
                 "content",
@@ -25,15 +25,15 @@ impl Discord {
             )
             .text("username", "scans")
             .file("file", filepath)
-            .context("cannot add file to multipart form")?;
+            .wrap_err("cannot add file to multipart form")?;
 
         self.client
             .post(self.webhook_url.as_str())
             .multipart(form)
             .send()
-            .context("cannot send http request")?
+            .wrap_err("cannot send http request")?
             .error_for_status()
-            .context("server returned an error")?;
+            .wrap_err("server returned an error")?;
 
         Ok(())
     }
