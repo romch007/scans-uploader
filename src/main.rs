@@ -1,6 +1,6 @@
 mod uploader;
 
-use eyre::{eyre, Context};
+use color_eyre::eyre::{eyre, Context, ContextCompat};
 use notify::{
     event::{AccessKind, AccessMode},
     EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -11,30 +11,31 @@ use std::{
     sync::mpsc,
 };
 
-fn main() {
+fn main() -> color_eyre::Result<()> {
     tracing_subscriber::fmt::init();
-    color_eyre::install().expect("cannot install color eyre");
+    color_eyre::install()?;
 
-    let ignore_dotfiles = env::var("IGNORE_DOTFILES")
-        .map(|v| {
-            v.parse::<bool>()
-                .expect("invalid IGNORE_DOTFILES env variable")
-        })
-        .unwrap_or(true);
+    let ignore_dotfiles = match env::var("IGNORE_DOTFILES") {
+        Ok(val) => val
+            .parse::<bool>()
+            .wrap_err("invalid IGNORE_DOTFILES env variable")?,
+        Err(env::VarError::NotPresent) => true,
+        Err(e) => return Err(e).wrap_err("failed to read IGNORE_DOTFILES env variable"),
+    };
 
     let watch_dir: PathBuf = env::var_os("WATCH_DIR")
-        .expect("WATCH_DIR not provided")
+        .wrap_err("WATCH_DIR not provided")?
         .into();
 
-    let watch_dir = fs::canonicalize(watch_dir).expect("cannot canonicalize path");
+    let watch_dir = fs::canonicalize(watch_dir).wrap_err("cannot canonicalize path")?;
 
     let (fs_event_tx, fs_event_rx) = mpsc::channel();
 
-    let mut watcher = notify::recommended_watcher(fs_event_tx).expect("cannot create watcher");
+    let mut watcher = notify::recommended_watcher(fs_event_tx).wrap_err("cannot create watcher")?;
 
     watcher
         .watch(&watch_dir, RecursiveMode::Recursive)
-        .expect("cannot watch directory");
+        .wrap_err("cannot watch directory")?;
 
     tracing::info!(
         "watching {} using {:?}",
@@ -42,7 +43,7 @@ fn main() {
         RecommendedWatcher::kind()
     );
 
-    let discord_webhook_url = env::var("WEBHOOK_URL").expect("no WEBHOOK_URL");
+    let discord_webhook_url = env::var("WEBHOOK_URL").wrap_err("no WEBHOOK_URL")?;
 
     let uploader = uploader::Discord::new(discord_webhook_url);
 
@@ -51,6 +52,8 @@ fn main() {
             tracing::error!("error while handling event: {error:?}");
         }
     }
+
+    Ok(())
 }
 
 fn handle_event(
@@ -58,7 +61,7 @@ fn handle_event(
     watch_dir: &Path,
     ignore_dotfiles: bool,
     uploader: uploader::Discord,
-) -> eyre::Result<()> {
+) -> color_eyre::Result<()> {
     let event = event.wrap_err("error in event")?;
 
     // check if the event is a close event on a writable file

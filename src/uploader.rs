@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use eyre::Context;
+use color_eyre::eyre::Context;
 use reqwest::blocking::multipart;
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ impl Discord {
         }
     }
 
-    pub fn upload(&self, group: &str, filename: &str, filepath: &Path) -> eyre::Result<()> {
+    pub fn upload(&self, group: &str, filename: &str, filepath: &Path) -> color_eyre::Result<()> {
         let form = multipart::Form::new()
             .text(
                 "content",
