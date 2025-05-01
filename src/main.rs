@@ -27,7 +27,8 @@ fn main() -> color_eyre::Result<()> {
         .wrap_err("WATCH_DIR not provided")?
         .into();
 
-    let watch_dir = fs::canonicalize(watch_dir).wrap_err("cannot canonicalize path")?;
+    let watch_dir = fs::canonicalize(&watch_dir)
+        .wrap_err_with(|| format!("cannot canonicalize path '{}'", watch_dir.display()))?;
 
     let (fs_event_tx, fs_event_rx) = mpsc::channel();
 
@@ -35,7 +36,7 @@ fn main() -> color_eyre::Result<()> {
 
     watcher
         .watch(&watch_dir, RecursiveMode::Recursive)
-        .wrap_err("cannot watch directory")?;
+        .wrap_err_with(|| format!("cannot watch directory '{}'", watch_dir.display()))?;
 
     tracing::info!(
         "watching {} using {:?}",
