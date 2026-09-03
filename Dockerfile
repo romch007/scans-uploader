@@ -1,28 +1,35 @@
-FROM rust:1 AS builder
+FROM rust:1 AS chef
 
-ENV TINI_VERSION=v0.19.0
-ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static /tini
-RUN chmod +x /tini
-
-RUN cargo install cargo-build-deps
+RUN cargo install cargo-chef --locked
 
 WORKDIR /app
 
-RUN cargo new --bin scans-uploader
-WORKDIR /app/scans-uploader
+FROM chef AS planner
 
 COPY Cargo.toml Cargo.lock ./
-RUN cargo build-deps --release
+COPY src ./src
+RUN cargo chef prepare --recipe-path recipe.json
 
+FROM chef AS builder
+
+ARG TARGETARCH
+ENV TINI_VERSION=v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-static-${TARGETARCH} /tini
+RUN chmod +x /tini
+
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release
 RUN strip target/release/scans-uploader
 
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 
 WORKDIR /app
 
-COPY --from=builder /app/scans-uploader/target/release/scans-uploader /app
+COPY --from=builder /app/target/release/scans-uploader /app
 COPY --from=builder /tini /tini
 
 ENTRYPOINT ["/tini" , "--"]
