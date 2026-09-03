@@ -49,7 +49,7 @@ fn main() -> color_eyre::Result<()> {
     let uploader = uploader::Discord::new(discord_webhook_url);
 
     for res in fs_event_rx {
-        if let Err(error) = handle_event(res, &watch_dir, ignore_dotfiles, uploader.clone()) {
+        if let Err(error) = handle_event(res, &watch_dir, ignore_dotfiles, &uploader) {
             tracing::error!("error while handling event: {error:?}");
         }
     }
@@ -61,7 +61,7 @@ fn handle_event(
     event: Result<notify::Event, notify::Error>,
     watch_dir: &Path,
     ignore_dotfiles: bool,
-    uploader: uploader::Discord,
+    uploader: &uploader::Discord,
 ) -> color_eyre::Result<()> {
     let event = event.wrap_err("error in event")?;
 

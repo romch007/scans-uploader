@@ -1,18 +1,18 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 use color_eyre::eyre::Context;
 use reqwest::blocking::multipart;
 
 #[derive(Debug)]
 pub struct Discord {
-    webhook_url: Arc<String>,
+    webhook_url: String,
     client: reqwest::blocking::Client,
 }
 
 impl Discord {
     pub fn new(webhook_url: String) -> Self {
         Self {
-            webhook_url: Arc::new(webhook_url),
+            webhook_url,
             client: reqwest::blocking::Client::new(),
         }
     }
@@ -36,14 +36,5 @@ impl Discord {
             .wrap_err("server returned an error")?;
 
         Ok(())
-    }
-}
-
-impl Clone for Discord {
-    fn clone(&self) -> Self {
-        Self {
-            webhook_url: Arc::clone(&self.webhook_url),
-            client: self.client.clone(),
-        }
     }
 }
